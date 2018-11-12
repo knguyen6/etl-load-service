@@ -31,6 +31,9 @@ public class ETL_Load implements RequestHandler<Request, Response>
     
     // Lambda Function Handler
     public Response handleRequest(Request request, Context context) {
+        //TODO: lambda trigger by new object in S3, get object key
+        String bucketName = System.getenv("BUCKET_NAME");;
+
         // Create logger
         LambdaLogger logger = context.getLogger();
         
@@ -44,19 +47,21 @@ public class ETL_Load implements RequestHandler<Request, Response>
         setCurrentDirectory("/tmp");
         try
         {
+            String tablename = "etlload";
+
             // Connection string an in-memory SQLite DB
             Connection con = DriverManager.getConnection("jdbc:sqlite:");
-            
+
             // Connection string for a file-based SQlite DB
 //            Connection con = DriverManager.getConnection("jdbc:sqlite:mytest.db");
             
             // Detect if the table 'mytable' exists in the database
-            PreparedStatement ps = con.prepareStatement("SELECT name FROM sqlite_master WHERE type='table' AND name='mytable'");
+            PreparedStatement ps = con.prepareStatement("SELECT name FROM sqlite_master WHERE type='table' AND name='" + tablename + "'");
             ResultSet rs = ps.executeQuery();
             if (!rs.next())
             {
                 // 'mytable' does not exist, and should be created
-                logger.log("trying to create table 'mytable'");
+                logger.log("trying to create table '" + tablename + "'");
                 ps = con.prepareStatement("CREATE TABLE mytable ( name text, col2 text, col3 text);");
                 ps.execute();
             }
@@ -96,8 +101,6 @@ public class ETL_Load implements RequestHandler<Request, Response>
         uses = uses + 1;
         String hello = "Hello " + request.getName() + " calls = " + uses;
 
-        //Print log information to the Lambda log as needed
-        //logger.log("log message...");
         
         // Set return result in Response class, class is marshalled into JSON
         r.setValue(hello);
@@ -105,7 +108,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
         return r;
     }
     
-    public static boolean setCurrentDirectory(String directory_name)
+    private static boolean setCurrentDirectory(String directory_name)
     {
         boolean result = false;  // Boolean indicating whether directory was set
         File    directory;       // Desired current working directory
@@ -117,7 +120,30 @@ public class ETL_Load implements RequestHandler<Request, Response>
         }
 
         return result;
-    }    
+    }
+
+    //TODO: get file from s3
+    private void getDataFromS3(String bucketName, String objectKey) {
+
+    }
+
+    //TODO: upload file to s3
+    private void putFileToS3(String bucketName, String objectKey){
+
+    }
+
+    //TODO: after getting csv file from s3, read line by line and insert to Db
+    private void csvToDb(String fileName){
+
+    }
+
+    //TODO: from local db, export as csv and upload to s3
+    private String sqlToCsv(String dbTableName, String csvFileName){
+        //From dbTableName, export to csv as csvFileName
+
+        return "";//path to csvFileName under /tmp
+
+    }
     
     // int main enables testing function from cmd line
     public static void main (String[] args)
