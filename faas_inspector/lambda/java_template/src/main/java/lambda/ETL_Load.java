@@ -4,21 +4,29 @@
  * and open the template in the editor.
  */
 package lambda;
+import com.amazonaws.services.s3.AmazonS3;
+import com.amazonaws.services.s3.AmazonS3ClientBuilder;
+import com.amazonaws.services.s3.model.GetObjectRequest;
+
+import java.io.File;
 
 import com.amazonaws.services.lambda.runtime.ClientContext;
 import com.amazonaws.services.lambda.runtime.CognitoIdentity;
 import com.amazonaws.services.lambda.runtime.Context; 
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
+import com.amazonaws.services.s3.model.PutObjectRequest;
 import faasinspector.register;
-import java.io.File;
+
+import java.io.*;
 import java.nio.charset.Charset;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
 import java.sql.SQLException;
-import java.util.LinkedList;
+
 /**
  * uwt.lambda_test::handleRequest
  * @author wlloyd
@@ -27,87 +35,146 @@ public class ETL_Load implements RequestHandler<Request, Response>
 {
     static String CONTAINER_ID = "/tmp/container-id";
     static Charset CHARSET = Charset.forName("US-ASCII");
-    
-    
+    LambdaLogger logger = null;
+    private AmazonS3 s3client;
+    private static final String LAMBDA_TEMP_DIRECTORY = "/tmp/";
+    private static final String AWS_REGION = "us-east-1";
+    private static final String TRANSFORM = "transformed"; //after lambda 1 transform, put csv here.
+    private static final String LOAD = "loaded"; // after lambda 2 (this) load db, upload db file here.
+    private static final String CSV_DELIM = ",";
+
     // Lambda Function Handler
     public Response handleRequest(Request request, Context context) {
-        //TODO: lambda trigger by new object in S3, get object key
-        String bucketName = System.getenv("BUCKET_NAME");;
+        String bucketName = System.getenv("BUCKET_NAME");
+        String objectKey = System.getenv("OUTPUT_FILE_NAME");
+        String dbName = System.getenv("DB_NAME");
+        String tableName = System.getenv("TABLE_NAME");
+
+        //static path to csv file under /tmp to be loaded to db table:
+        String csvFilePath = LAMBDA_TEMP_DIRECTORY + objectKey;
 
         // Create logger
-        LambdaLogger logger = context.getLogger();
-        
+        logger = context.getLogger();
+
+        //setup S3 client :
+        s3client = AmazonS3ClientBuilder.standard().withRegion(AWS_REGION).build();
+
         // Register function
         register reg = new register(logger);
 
         //stamp container with uuid
         Response r = reg.StampContainer();
-        int uses = 0;
 
         setCurrentDirectory("/tmp");
+
+        // *********************************************************************
+        // Implement Lambda Function Here
+        // *********************************************************************
+
         try
         {
-            String tablename = "etlload";
-
-            // Connection string an in-memory SQLite DB
-            Connection con = DriverManager.getConnection("jdbc:sqlite:");
+            // get file from s3, download to /tmp
+            File tmpDir = new File(csvFilePath);
+            boolean exists = tmpDir.exists();
+            if (!exists)
+                getDataFromS3(bucketName, objectKey);
 
             // Connection string for a file-based SQlite DB
-//            Connection con = DriverManager.getConnection("jdbc:sqlite:mytest.db");
+            Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
             
-            // Detect if the table 'mytable' exists in the database
-            PreparedStatement ps = con.prepareStatement("SELECT name FROM sqlite_master WHERE type='table' AND name='" + tablename + "'");
+            // Detect if the table  exists in the database
+            PreparedStatement ps = con.prepareStatement("SELECT * FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
             ResultSet rs = ps.executeQuery();
+
+            // if table doesnt exist, create new one:
             if (!rs.next())
             {
-                // 'mytable' does not exist, and should be created
-                logger.log("trying to create table '" + tablename + "'");
-                ps = con.prepareStatement("CREATE TABLE mytable ( name text, col2 text, col3 text);");
+                r.setDbname(dbName);
+                // table does not exist, and should be created
+                System.out.println(" Table doesnt exist. Creating table: '" + tableName + "'");
+
+                ps = con.prepareStatement("CREATE TABLE "+ tableName+"( \"Order ID\" TEXT PRIMARY KEY, \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT,\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT,\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT);");
                 ps.execute();
+                rs.close();
+
+                //insert data from csv file to table:
+                insertTable(csvFilePath, tableName, con);
+
+                ps = con.prepareStatement("select * from "+ tableName+ ";");
+                rs = ps.executeQuery();
+                displayData(rs);
+
+
+                //list file for debugging:
+                listFile(LAMBDA_TEMP_DIRECTORY);
+
+
+                // need to upload db to s3
+                putFileToS3(bucketName, new File(LAMBDA_TEMP_DIRECTORY + dbName));
+
+                r.setTablename(tableName);
             }
-            rs.close();
-            
-            // Insert row into mytable
-            ps = con.prepareStatement("insert into mytable values('" + request.getName() + "','b','c');");
-            ps.execute();
-            
-            // Query mytable to obtain full resultset
-            ps = con.prepareStatement("select * from mytable;");
-            rs = ps.executeQuery();
-            // Load query results for [name] column into a Java Linked List
-            // ignore [col2] and [col3] 
-            LinkedList<String> ll = new LinkedList<String>();
-            while (rs.next())
-            {
-                logger.log("name=" + rs.getString("name"));
-                ll.add(rs.getString("name"));
-                logger.log("col2=" + rs.getString("col2"));
-                logger.log("col3=" + rs.getString("col3"));
+            else {
+                logger.log("Nothing to be done, send response. " +
+                        "DB '" + dbName + "' exists with table: " + tableName);
             }
             rs.close();
             con.close();
-            r.setNames(ll);
         }
         catch (SQLException sqle)
         {
             logger.log("DB ERROR:" + sqle.toString());
-            sqle.printStackTrace();
         }
-        
-        
-        // *********************************************************************
-        // Implement Lambda Function Here
-        // *********************************************************************
-        uses = uses + 1;
-        String hello = "Hello " + request.getName() + " calls = " + uses;
+        catch (Exception e) {
+            logger.log("File Error: " + e.toString());
+        }
 
-        
-        // Set return result in Response class, class is marshalled into JSON
-        r.setValue(hello);
-        
         return r;
     }
-    
+
+    //insert data from csv to table
+    private static  void insertTable(String csvFilePath, String tablename, Connection con) {
+        System.out.println("==> inserting into table... " + csvFilePath + ", tableName: " + tablename);
+        //try inserting data to table from local csv:
+        String line = "";
+        int lineCount = 0;
+        try{
+            BufferedReader br = new BufferedReader(new FileReader(csvFilePath));
+            while ((line = br.readLine()) != null) {
+                lineCount++;
+
+                //skip first line, it's headers, no need to insert
+                if (lineCount == 1) {
+                    continue;
+                }
+
+                String[] country = line.split(CSV_DELIM);
+                String values = "";
+
+                //build the values to insert, needs single quotes per string, and comma in b/w:
+                for (int i = 0; i < country.length; i++) {
+                    values = values + "'" + country[i] + "'";
+
+                    //add comma after every value except the last value
+                    if (i != country.length - 1)
+                        values = values + CSV_DELIM;
+                } //for
+
+                    //insert each row to table:
+                    PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
+                    ps.execute();
+            }//while
+        }
+        catch(Exception e ){
+            System.out.println("Error inserting data (from csv) to table. " + e);
+        }
+    }
+
+    /**
+     * Helper method
+     * @param directory_name
+     * @return boolean
+     */
     private static boolean setCurrentDirectory(String directory_name)
     {
         boolean result = false;  // Boolean indicating whether directory was set
@@ -122,29 +189,91 @@ public class ETL_Load implements RequestHandler<Request, Response>
         return result;
     }
 
-    //TODO: get file from s3
+    /**
+     * Helper func to display data from a result set.
+     * @param resultSet
+     */
+    private void displayData(ResultSet resultSet) {
+        logger.log("Displaying result set: ");
+        try {
+            ResultSetMetaData rsmd = resultSet.getMetaData();
+
+            int columnsNumber = rsmd.getColumnCount();
+            while (resultSet.next()) {
+                for (int i = 1; i <= columnsNumber; i++) {
+                    if (i > 1) System.out.print(",  ");
+                    String columnValue = resultSet.getString(i);
+                    System.out.print(columnValue + "-" + rsmd.getColumnName(i));
+                }
+                System.out.println("");
+            }
+        }
+        catch (SQLException e) {
+            System.out.println("Error displayData. " + e.getMessage());
+        }
+
+    }
+
+    /**
+     *  get s3 object
+     * @param bucketName bucket name
+     * @param objectKey object key aka name of file in s3, or path of file in s3
+     */
     private void getDataFromS3(String bucketName, String objectKey) {
+        System.out.println("getting file from s3 for " + bucketName + " : " + TRANSFORM + "/" + objectKey);
+        try {
+            s3client.getObject(new GetObjectRequest(bucketName, TRANSFORM + "/" +objectKey),
+                    new File(LAMBDA_TEMP_DIRECTORY + objectKey));
+        }
+        catch (Exception e) {
+            logger.log("Error getting object from S3. " + e.getMessage());
+        }
+
 
     }
 
-    //TODO: upload file to s3
-    private void putFileToS3(String bucketName, String objectKey){
+    //list File under a path:
+    public static void listFile(String path){
+        System.out.println("========== listFile under: " + path);
+        File folder = new File(path);
+        File[] listOfFiles = folder.listFiles();
+        if (listOfFiles.length > 0 ) {
+            for (int i = 0; i < listOfFiles.length; i++) {
+                if (listOfFiles[i].isFile()) {
+                    System.out.println("File " + listOfFiles[i].getName());
 
+                } else if (listOfFiles[i].isDirectory()) {
+                    System.out.println("Directory " + listOfFiles[i].getName());
+                }
+            }
+        }
+
+        System.out.println("=============================================");
     }
 
-    //TODO: after getting csv file from s3, read line by line and insert to Db
-    private void csvToDb(String fileName){
+    /**
+     * Upload a file to S3.
+     * @param bucketName name of bucket
+     * @param file to upload to S3
+     */
+    private void putFileToS3(String bucketName, File file){
+        System.out.println("uploading file to s3 for: " + file.getPath() + ", name: " + file.getName());
+        String objectKey = LOAD + "/" + file.getName();
 
+        try {
+            //create an object with data will be used by s3client to upload:
+            PutObjectRequest putObjectRequest = new PutObjectRequest(bucketName, objectKey, file);
+            s3client.putObject(putObjectRequest);//upload to S3
+            logger.log("uploadFileToS3 to " + bucketName + ". Successfully uploaded " + file.getName());
+        }
+        catch (Exception ase){
+            logger.log("Failed to upload to S3 at bucketName: " + bucketName +
+                    ", objectKey: " + objectKey + ", Exception: " +ase.toString());
+        }
     }
 
-    //TODO: from local db, export as csv and upload to s3
-    private String sqlToCsv(String dbTableName, String csvFileName){
-        //From dbTableName, export to csv as csvFileName
 
-        return "";//path to csvFileName under /tmp
-
-    }
-    
+    // TODO: fix this so we can collect metrics:
     // int main enables testing function from cmd line
     public static void main (String[] args)
     {

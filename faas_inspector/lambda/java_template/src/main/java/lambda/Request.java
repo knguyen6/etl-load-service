@@ -11,6 +11,8 @@ package lambda;
  */
 public class Request {
     String name;
+    String key;
+
     public String getName()
     {
         return name;
@@ -23,6 +25,15 @@ public class Request {
     {
         this.name = name;
     }
+
+    public String getKey() {
+        return key;
+    }
+
+    public void setKey(String key) {
+        this.key = key;
+    }
+
     public Request()
     {
         

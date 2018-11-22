@@ -21,31 +21,37 @@ public class Response extends fiResponse {
     // ADD getters and setters for custom attributes here.
     //
 
-    // Return value
-    private String value;
-    public String getValue()
+    // Return tablename
+    private String tablename;
+    public String getTablename()
     {
-        return value;
+        return tablename;
     }
-    public void setValue(String value)
+    public void setTablename(String tablename)
     {
-        this.value = value;
+        this.tablename = tablename;
     }
     
-    public List<String> names;
-    public List<String> getNames()
+    public String dbname;
+    public String getDbname()
     {
-        return this.names;
+        return this.dbname;
     }
-    public void setNames(List<String> names)
+    public void setDbname(String dbname)
     {
-        this.names = names;
+        this.dbname = dbname;
     }
 
     @Override
     public String toString()
     {
-        return "value=" + this.getValue() + super.toString(); 
+        StringBuilder sb = new StringBuilder();
+        sb.append("dbName=");
+        sb.append(this.getDbname());
+        sb.append(" | ");
+        sb.append("tableName=");
+        sb.append(this.getTablename());
+        return sb + super.toString();
     }
 
 }
