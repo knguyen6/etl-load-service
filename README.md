@@ -16,3 +16,7 @@ Your lambda will need these environment variables (Add environment vars on ur La
 ```OUTPUT_FILE_NAME : outfile_100SalesRecords.csv```
 
 ```TABLE_NAME : sale_table```
+
+
+## Request
+Currently it doesn't need a request body.
