@@ -12,7 +12,7 @@ import java.io.File;
 
 import com.amazonaws.services.lambda.runtime.ClientContext;
 import com.amazonaws.services.lambda.runtime.CognitoIdentity;
-import com.amazonaws.services.lambda.runtime.Context; 
+import com.amazonaws.services.lambda.runtime.Context;
 import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.s3.model.PutObjectRequest;
@@ -31,7 +31,7 @@ import java.sql.SQLException;
  * uwt.lambda_test::handleRequest
  * @author wlloyd
  */
-public class ETL_Load implements RequestHandler<Request, Response>
+public class ETL_Load_3 implements RequestHandler<Request, Response>
 {
     static String CONTAINER_ID = "/tmp/container-id";
     static Charset CHARSET = Charset.forName("US-ASCII");
@@ -100,7 +100,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
             // Connection string for a file-based SQlite DB
             Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
-            
+
             // Detect if the table  exists in the database
             PreparedStatement ps = con.prepareStatement("SELECT * FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
             ResultSet rs = ps.executeQuery();
@@ -154,7 +154,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
     // set response obj
     private void setResponseObj(Response r, boolean success, String e, String bucketName,
-                                       String dbName, String tableName) {
+                                String dbName, String tableName) {
         // Set response object:
         if (success) {
             r.setSuccess(true);
@@ -197,9 +197,9 @@ public class ETL_Load implements RequestHandler<Request, Response>
                         values = values + CSV_DELIM;
                 } //for
 
-                    //insert each row to table:
-                    PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
-                    ps.execute();
+                //insert each row to table:
+                PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
+                ps.execute();
             }//while
         }
         catch(Exception e ){
@@ -380,7 +380,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
                 };
             }
         };
-        
+
 //        // Create an instance of the class
 //        ETL_Load lt = new ETL_Load();
 //
