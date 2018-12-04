@@ -24,6 +24,13 @@
             <version>1.11.93</version>
         </dependency>
 
+        <!-- Amazon AWS S3 SDK -->
+        <dependency>
+            <groupId>com.amazonaws</groupId>
+            <artifactId>aws-java-sdk-lambda</artifactId>
+            <version>1.11.93</version>
+        </dependency>
+
         <!-- Joda Time -->
         <dependency>
             <groupId>joda-time</groupId>

@@ -45,13 +45,15 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
     // Lambda Function Handler
     public Response handleRequest(Request request, Context context) {
-        String bucketName = System.getenv("BUCKET_NAME");
-        String objectKey = System.getenv("OUTPUT_FILE_NAME");
+        String bucketName = request.getBucketname(); //get bucketname from req.
+        String fileName = request.getFilename(); //get export_filename from req.
+
+
         String dbName = System.getenv("DB_NAME");
         String tableName = System.getenv("TABLE_NAME");
 
         //static path to csv file under /tmp to be loaded to db table:
-        String csvFilePath = LAMBDA_TEMP_DIRECTORY + objectKey;
+        String csvFilePath = LAMBDA_TEMP_DIRECTORY + fileName;
 
         // Create logger
         logger = context.getLogger();
@@ -65,6 +67,21 @@ public class ETL_Load implements RequestHandler<Request, Response>
         //stamp container with uuid
         Response r = reg.StampContainer();
 
+        //make sure to have  "bucketname" and "filename" in request obj:
+        if (bucketName == null || fileName == null){
+            setResponseObj(r, false, "\"bucketname\" and \"filename\" are required in request obj", null, null, null);
+            return r;
+        }
+
+        // make sure to have environment variables set for DB_NAME and TABLE_NAME:
+        if (dbName == null || tableName == null){
+            setResponseObj(r, false, " Environment variables: \"DB_NAME\" or \"TABLE_NAME\" are not set", null, null, null);
+            return r;
+        }
+
+
+        logger.log("bucketname = " + bucketName + ", filename = " + fileName);
+
         setCurrentDirectory("/tmp");
 
         // *********************************************************************
@@ -76,8 +93,10 @@ public class ETL_Load implements RequestHandler<Request, Response>
             // get file from s3, download to /tmp
             File tmpDir = new File(csvFilePath);
             boolean exists = tmpDir.exists();
-            if (!exists)
-                getDataFromS3(bucketName, objectKey);
+            if (!exists) {
+                getDataFromS3(bucketName, fileName);
+
+            }
 
             // Connection string for a file-based SQlite DB
             Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
@@ -89,9 +108,8 @@ public class ETL_Load implements RequestHandler<Request, Response>
             // if table doesnt exist, create new one:
             if (!rs.next())
             {
-                r.setDbname(dbName);
                 // table does not exist, and should be created
-                System.out.println(" Table doesnt exist. Creating table: '" + tableName + "'");
+                logger.log(" Table doesnt exist. Creating table: '" + tableName + "'");
 
                 ps = con.prepareStatement("CREATE TABLE "+ tableName+"( \"Order ID\" TEXT PRIMARY KEY, \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT,\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT,\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT);");
                 ps.execute();
@@ -102,39 +120,59 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
                 ps = con.prepareStatement("select * from "+ tableName+ ";");
                 rs = ps.executeQuery();
-                displayData(rs);
-
-
-                //list file for debugging:
-                listFile(LAMBDA_TEMP_DIRECTORY);
-
+                // Debugging, print out result from select statement:
+//                displayData(rs);
 
                 // need to upload db to s3
                 putFileToS3(bucketName, new File(LAMBDA_TEMP_DIRECTORY + dbName));
 
-                r.setTablename(tableName);
             }
             else {
                 logger.log("Nothing to be done, send response. " +
                         "DB '" + dbName + "' exists with table: " + tableName);
             }
+
+            setResponseObj(r, true, null, bucketName, dbName, tableName);
+
             rs.close();
             con.close();
+
+            logger.log("closing all connection !!!");
+
         }
         catch (SQLException sqle)
         {
             logger.log("DB ERROR:" + sqle.toString());
+            setResponseObj(r, false, sqle.toString(), null, null, null);
         }
         catch (Exception e) {
             logger.log("File Error: " + e.toString());
+            setResponseObj(r, false, e.toString(), null, null, null);
         }
 
         return r;
     }
 
+    // set response obj
+    private void setResponseObj(Response r, boolean success, String e, String bucketName,
+                                       String dbName, String tableName) {
+        // Set response object:
+        if (success) {
+            r.setSuccess(true);
+            r.setBucketname(bucketName);
+            r.setDbname(dbName);
+            r.setTablename(tableName);
+        }
+        else {
+            r.setSuccess(false);
+            r.setError(e.toString());
+        }
+
+    }
+
     //insert data from csv to table
-    private static  void insertTable(String csvFilePath, String tablename, Connection con) {
-        System.out.println("==> inserting into table... " + csvFilePath + ", tableName: " + tablename);
+    private static void insertTable(String csvFilePath, String tablename, Connection con) {
+
         //try inserting data to table from local csv:
         String line = "";
         int lineCount = 0;
@@ -217,12 +255,12 @@ public class ETL_Load implements RequestHandler<Request, Response>
     /**
      *  get s3 object
      * @param bucketName bucket name
-     * @param objectKey object key aka name of file in s3, or path of file in s3
+     * @param objectKey object filename aka name of file in s3, or path of file in s3
      */
     private void getDataFromS3(String bucketName, String objectKey) {
-        System.out.println("getting file from s3 for " + bucketName + " : " + TRANSFORM + "/" + objectKey);
+//        System.out.println("getting file from s3 for " + bucketName + " : " + TRANSFORM + "/" + objectKey);
         try {
-            s3client.getObject(new GetObjectRequest(bucketName, TRANSFORM + "/" +objectKey),
+            s3client.getObject(new GetObjectRequest(bucketName, TRANSFORM + "/" + objectKey),
                     new File(LAMBDA_TEMP_DIRECTORY + objectKey));
         }
         catch (Exception e) {
@@ -257,7 +295,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
      * @param file to upload to S3
      */
     private void putFileToS3(String bucketName, File file){
-        System.out.println("uploading file to s3 for: " + file.getPath() + ", name: " + file.getName());
+//        System.out.println("uploading file to s3 for: " + file.getPath() + ", name: " + file.getName());
         String objectKey = LOAD + "/" + file.getName();
 
         try {
@@ -339,32 +377,31 @@ public class ETL_Load implements RequestHandler<Request, Response>
             }
         };
         
-        // Create an instance of the class
-        ETL_Load lt = new ETL_Load();
-        
-        // Create a request object
-        Request req = new Request();
-        
-        // Grab the name from the cmdline from arg 0
-        String name = (args.length > 0 ? args[0] : "");
-        
-        // Load the name into the request object
-        req.setName(name);
-
-        // Report name to stdout
-        System.out.println("cmd-line param name=" + req.getName());
-        
-        // Run the function
-        Response resp = lt.handleRequest(req, c);
-        try
-        {
-            Thread.sleep(100000);
-        }
-        catch (InterruptedException ie)
-        {
-            System.out.print(ie.toString());
-        }
-        // Print out function result
-        System.out.println("function result:" + resp.toString());
+//        // Create an instance of the class
+//        ETL_Load lt = new ETL_Load();
+//
+//        // Create a request object
+//        Request req = new Request();
+//        System.out.println("");
+//
+//        //TODO: fix this
+//        // Grab the name from the cmdline from arg 0
+//        String filename = (args.length > 0 ? args[0] : "");
+//
+//        // Load the name into the request object
+//        req.setBucketname(filename);
+//
+//        // Run the function
+//        Response resp = lt.handleRequest(req, c);
+//        try
+//        {
+//            Thread.sleep(100000);
+//        }
+//        catch (InterruptedException ie)
+//        {
+//            System.out.print(ie.toString());
+//        }
+//        // Print out function result
+//        System.out.println("function result:" + resp.toString());
     }
 }

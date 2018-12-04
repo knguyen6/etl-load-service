@@ -13,16 +13,31 @@ import java.util.List;
  * @author wlloyd
  */
 public class Response extends fiResponse {
-    
+
+
     //
     // User Defined Attributes
     //
     //
     // ADD getters and setters for custom attributes here.
     //
-
-    // Return tablename
+    private boolean success;
+    private String bucketname;
     private String tablename;
+    public String dbname;
+
+
+
+    private String error;
+
+
+    public String getBucketname() {
+        return bucketname;
+    }
+
+    public void setBucketname(String bucketname) {
+        this.bucketname = bucketname;
+    }
     public String getTablename()
     {
         return tablename;
@@ -31,8 +46,6 @@ public class Response extends fiResponse {
     {
         this.tablename = tablename;
     }
-    
-    public String dbname;
     public String getDbname()
     {
         return this.dbname;
@@ -42,15 +55,35 @@ public class Response extends fiResponse {
         this.dbname = dbname;
     }
 
+    public boolean getSuccess() {
+        return success;
+    }
+
+    public void setSuccess(boolean message) {
+        this.success = message;
+    }
+    @Override
+    public String getError() {
+        return error;
+    }
+
+    @Override
+    public void setError(String error) {
+        this.error = error;
+    }
     @Override
     public String toString()
     {
         StringBuilder sb = new StringBuilder();
-        sb.append("dbName=");
+        sb.append("bucketname=");
+        sb.append(this.getBucketname());
+        sb.append(" | ");
+        sb.append("dbname=");
         sb.append(this.getDbname());
         sb.append(" | ");
-        sb.append("tableName=");
+        sb.append("tablename=");
         sb.append(this.getTablename());
+
         return sb + super.toString();
     }
 

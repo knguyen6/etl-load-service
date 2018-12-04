@@ -10,28 +10,25 @@ package lambda;
  * @author wlloyd
  */
 public class Request {
-    String name;
-    String key;
+    String bucketname;
+    String filename;
 
-    public String getName()
+
+    public String getBucketname()
     {
-        return name;
+        return bucketname;
     }
-    public void setName(String name)
+    public void setBucketname(String bucketname)
     {
-        this.name = name;
-    }
-    public Request(String name)
-    {
-        this.name = name;
+        this.bucketname = bucketname;
     }
 
-    public String getKey() {
-        return key;
+    public String getFilename() {
+        return filename;
     }
 
-    public void setKey(String key) {
-        this.key = key;
+    public void setFilename(String filename) {
+        this.filename = filename;
     }
 
     public Request()
