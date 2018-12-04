@@ -42,7 +42,7 @@ Example:
 {
   "success": true/false,
   "bucketname":  "my_bucket",
-  "dbname" : "mydb.db",
+  "dbname" : "my_db.db",
   "tablename" : "my_table",
   "error" : "<error if success=false>"
 }
