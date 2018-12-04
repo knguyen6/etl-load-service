@@ -164,7 +164,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
         }
         else {
             r.setSuccess(false);
-            r.setError(e.toString());
+            r.setError(e);
         }
 
     }
