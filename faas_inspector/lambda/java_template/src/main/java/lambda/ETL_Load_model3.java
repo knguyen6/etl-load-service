@@ -1,9 +1,7 @@
-/*
- * To change this license header, choose License Headers in Project Properties.
- * To change this template file, choose Tools | Templates
- * and open the template in the editor.
- */
 package lambda;
+
+import com.amazonaws.services.lambda.AWSLambda;
+import com.amazonaws.services.lambda.invoke.LambdaFunction;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
@@ -17,6 +15,12 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import faasinspector.register;
+import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
+import com.amazonaws.services.lambda.model.InvokeRequest;
+import com.amazonaws.services.lambda.model.InvokeResult;
+import org.apache.http.HttpStatus;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -31,12 +35,13 @@ import java.sql.SQLException;
  * uwt.lambda_test::handleRequest
  * @author wlloyd
  */
-public class ETL_Load_3 implements RequestHandler<Request, Response>
+public class ETL_Load_model3 implements RequestHandler<Request, Response>
 {
     static String CONTAINER_ID = "/tmp/container-id";
     static Charset CHARSET = Charset.forName("US-ASCII");
     LambdaLogger logger = null;
     private AmazonS3 s3client;
+    private AWSLambda lambdaClient;
     private static final String LAMBDA_TEMP_DIRECTORY = "/tmp/";
     private static final String AWS_REGION = "us-east-1";
     private static final String TRANSFORM = "transformed"; //after lambda 1 transform, put csv here.
@@ -57,9 +62,6 @@ public class ETL_Load_3 implements RequestHandler<Request, Response>
 
         // Create logger
         logger = context.getLogger();
-
-        //setup S3 client :
-        s3client = AmazonS3ClientBuilder.standard().withRegion(AWS_REGION).build();
 
         // Register function
         register reg = new register(logger);
@@ -87,6 +89,11 @@ public class ETL_Load_3 implements RequestHandler<Request, Response>
         // *********************************************************************
         // Implement Lambda Function Here
         // *********************************************************************
+        //setup S3 client :
+        s3client = AmazonS3ClientBuilder.standard().withRegion(AWS_REGION).build();
+
+        //setup lambda invoke client:
+        lambdaClient =  AWSLambdaClientBuilder.standard().withRegion(AWS_REGION).build();
 
         try
         {
@@ -152,6 +159,37 @@ public class ETL_Load_3 implements RequestHandler<Request, Response>
         return r;
     }
 
+
+    //Invoke another lambda (https://medium.com/@joshua.a.kahn/invoking-an-aws-lambda-function-from-java-29efe3a03fe8)
+    // How to build json (https://stackoverflow.com/questions/8876089/how-to-fluently-build-json-in-java)
+    private boolean invokeLambda(String bucketname, String dbname, String tablename) throws JSONException {
+        String invokeLambdaName = System.getenv("EXTRACTION_LAMBDA_NAME");
+        if (invokeLambdaName == null) {
+            throw new IllegalArgumentException("Environment variable \'EXTRACTION_LAMBDA_NAME\' is not set. Cant invoke next lambda");
+        }
+
+        //build payload:
+        String payload = new JSONObject()
+                .put("bucketname", bucketname)
+                .put("dbname", dbname)
+                .put("tablename", tablename).toString();
+
+        //invoke another func
+        InvokeRequest req = new InvokeRequest()
+                .withFunctionName(invokeLambdaName)
+                .withPayload(payload);
+
+        // Invoke the function and capture response
+        InvokeResult result = lambdaClient.invoke(req);
+
+        if (result.getStatusCode() != HttpStatus.SC_OK) {
+            return true;
+        }
+        System.out.println("Failed to invoke \'" + invokeLambdaName +"\'. " + result.getFunctionError());
+        return false;
+    }
+
+
     // set response obj
     private void setResponseObj(Response r, boolean success, String e, String bucketName,
                                 String dbName, String tableName) {
@@ -164,7 +202,7 @@ public class ETL_Load_3 implements RequestHandler<Request, Response>
         }
         else {
             r.setSuccess(false);
-            r.setError(e.toString());
+            r.setError(e);
         }
 
     }
