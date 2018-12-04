@@ -111,7 +111,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
                 // table does not exist, and should be created
                 logger.log(" Table doesnt exist. Creating table: '" + tableName + "'");
 
-                ps = con.prepareStatement("CREATE TABLE "+ tableName+"( \"Order ID\" TEXT PRIMARY KEY, \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT,\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT,\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT);");
+                ps = con.prepareStatement("CREATE TABLE "+ tableName+"( \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT,\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Order ID\" TEXT PRIMARY KEY, \"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT,\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT,\"Order Processing Time\" TEXT, \"Gross Margin\" TEXT);");
                 ps.execute();
                 rs.close();
 
@@ -190,16 +190,18 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
                 //build the values to insert, needs single quotes per string, and comma in b/w:
                 for (int i = 0; i < country.length; i++) {
-                    values = values + "'" + country[i] + "'";
+                    String cell = country[i];
+
+                    values += "'" + cell.replaceAll("'", "''") + "'";
 
                     //add comma after every value except the last value
                     if (i != country.length - 1)
                         values = values + CSV_DELIM;
                 } //for
 
-                    //insert each row to table:
-                    PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
-                    ps.execute();
+                //insert each row to table:
+                PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
+                ps.execute();
             }//while
         }
         catch(Exception e ){
