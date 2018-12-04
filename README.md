@@ -7,16 +7,21 @@ Then upload to lambda.
 ## Environment Variables
 Your lambda will need these environment variables (Add environment vars on ur Lambda UI, under the upload for source code section): 
 
+```DB_NAME : my_db.db```
 
-
-```BUCKET_NAME : <whatever bucket you're using>```
-
-```DB_NAME : sale.db```
-
-```OUTPUT_FILE_NAME : outfile_100SalesRecords.csv```
-
-```TABLE_NAME : sale_table```
+```TABLE_NAME : my_table```
 
 
 ## Request
-Currently it doesn't need a request body.
+Request body required ```bucketname``` and ```filename```
+
+Example: 
+
+```
+{
+  "bucketname" : "my_bucket",
+  "filename" : "my_file.csv"
+}
+```
+
+
