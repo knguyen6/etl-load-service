@@ -123,7 +123,7 @@ public class ETL_Load_model3 implements RequestHandler<Request, Response>
                 rs.close();
 
                 //insert data from csv file to table:
-                insertTable(csvFilePath, tableName, con);
+//                insertTable(csvFilePath, tableName, con);
 
                 ps = con.prepareStatement("select * from "+ tableName+ ";");
                 rs = ps.executeQuery();
@@ -138,6 +138,11 @@ public class ETL_Load_model3 implements RequestHandler<Request, Response>
 
             // need to upload db to s3
             putFileToS3(bucketName, new File(LAMBDA_TEMP_DIRECTORY + dbName));
+
+            //invoke next lambda:
+            invokeLambda(bucketName,dbName,tableName);
+
+            //send response:
             setResponseObj(r, true, null, bucketName, dbName, tableName);
 
             rs.close();
