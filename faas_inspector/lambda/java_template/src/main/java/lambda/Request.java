@@ -10,18 +10,21 @@ package lambda;
  * @author wlloyd
  */
 public class Request {
-    String bucketname;
+//    String bucketname;
     String filename;
 
 
-    public String getBucketname()
-    {
-        return bucketname;
-    }
-    public void setBucketname(String bucketname)
-    {
-        this.bucketname = bucketname;
-    }
+
+    String transactionid;
+
+//    public String getBucketname()
+//    {
+//        return bucketname;
+//    }
+//    public void setBucketname(String bucketname)
+//    {
+//        this.bucketname = bucketname;
+//    }
 
     public String getFilename() {
         return filename;
@@ -30,7 +33,13 @@ public class Request {
     public void setFilename(String filename) {
         this.filename = filename;
     }
+    public String getTransactionid() {
+        return transactionid;
+    }
 
+    public void setTransactionid(String transactionid) {
+        this.transactionid = transactionid;
+    }
     public Request()
     {
         

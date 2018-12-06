@@ -4,6 +4,10 @@
  * and open the template in the editor.
  */
 package lambda;
+import com.amazonaws.services.lambda.AWSLambda;
+import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
+import com.amazonaws.services.lambda.model.InvokeRequest;
+import com.amazonaws.services.lambda.model.InvokeResult;
 import com.amazonaws.services.s3.AmazonS3;
 import com.amazonaws.services.s3.AmazonS3ClientBuilder;
 import com.amazonaws.services.s3.model.GetObjectRequest;
@@ -17,6 +21,9 @@ import com.amazonaws.services.lambda.runtime.RequestHandler;
 import com.amazonaws.services.lambda.runtime.LambdaLogger;
 import com.amazonaws.services.s3.model.PutObjectRequest;
 import faasinspector.register;
+import org.apache.http.HttpStatus;
+import org.json.JSONException;
+import org.json.JSONObject;
 
 import java.io.*;
 import java.nio.charset.Charset;
@@ -37,29 +44,23 @@ public class ETL_Load implements RequestHandler<Request, Response>
     static Charset CHARSET = Charset.forName("US-ASCII");
     LambdaLogger logger = null;
     private AmazonS3 s3client;
+    private AWSLambda lambdaClient;
+
     private static final String LAMBDA_TEMP_DIRECTORY = "/tmp/";
     private static final String AWS_REGION = "us-east-1";
     private static final String TRANSFORM = "transformed"; //after lambda 1 transform, put csv here.
     private static final String LOAD = "loaded"; // after lambda 2 (this) load db, upload db file here.
     private static final String CSV_DELIM = ",";
 
-    // Lambda Function Handler
+    private static final String bucketName = System.getenv("BUCKET_NAME");
+    private static final String dbName = System.getenv("DB_NAME");
+    private static final String tableName = System.getenv("TABLE_NAME");
+    private static final String invokedLambdaName = System.getenv("EXTRACTION_LAMBDA_NAME");
+
+    // Lambda Function Handler, no need to invoke another lambda
     public Response handleRequest(Request request, Context context) {
-        String bucketName = request.getBucketname(); //get bucketname from req.
-        String fileName = request.getFilename(); //get export_filename from req.
-
-
-        String dbName = System.getenv("DB_NAME");
-        String tableName = System.getenv("TABLE_NAME");
-
-        //static path to csv file under /tmp to be loaded to db table:
-        String csvFilePath = LAMBDA_TEMP_DIRECTORY + fileName;
-
         // Create logger
         logger = context.getLogger();
-
-        //setup S3 client :
-        s3client = AmazonS3ClientBuilder.standard().withRegion(AWS_REGION).build();
 
         // Register function
         register reg = new register(logger);
@@ -67,29 +68,25 @@ public class ETL_Load implements RequestHandler<Request, Response>
         //stamp container with uuid
         Response r = reg.StampContainer();
 
-        //make sure to have  "bucketname" and "filename" in request obj:
-        if (bucketName == null || fileName == null){
-            setResponseObj(r, false, "\"bucketname\" and \"filename\" are required in request obj", null, null, null);
-            return r;
-        }
-
-        // make sure to have environment variables set for DB_NAME and TABLE_NAME:
-        if (dbName == null || tableName == null){
-            setResponseObj(r, false, " Environment variables: \"DB_NAME\" or \"TABLE_NAME\" are not set", null, null, null);
-            return r;
-        }
-
-
-        logger.log("bucketname = " + bucketName + ", filename = " + fileName);
-
         setCurrentDirectory("/tmp");
+        String fileName = request.getFilename(); //get filename from req.
+        String transactionId = request.getTransactionid(); //get transactionId from req.
 
-        // *********************************************************************
-        // Implement Lambda Function Here
-        // *********************************************************************
-
+        //make sure env vars and required field in request present:
+        String precheckErrMsg = validateParams(request);
+        if (precheckErrMsg != null) {
+            setResponseObj(r, false, transactionId,precheckErrMsg, null, null, null);
+            return r;
+        }
+        logger.log("input fileName: " + fileName);
         try
         {
+            //setup S3 client :
+            s3client = AmazonS3ClientBuilder.standard().withRegion(AWS_REGION).build();
+
+            //static path to csv file under /tmp to be loaded to db table:
+            String csvFilePath = LAMBDA_TEMP_DIRECTORY + fileName;
+
             // get file from s3, download to /tmp
             File tmpDir = new File(csvFilePath);
             boolean exists = tmpDir.exists();
@@ -98,64 +95,76 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
             }
 
-            // Connection string for a file-based SQlite DB
-            Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
-            
-            // Detect if the table  exists in the database
-            PreparedStatement ps = con.prepareStatement("SELECT * FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
-            ResultSet rs = ps.executeQuery();
+            //create table, insert data from csv:
+            createDB(csvFilePath);
 
-            // if table doesnt exist, create new one:
-            if (!rs.next())
-            {
-                // table does not exist, and should be created
-                logger.log(" Table doesnt exist. Creating table: '" + tableName + "'");
-
-                ps = con.prepareStatement("CREATE TABLE "+ tableName+"( \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT,\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Order ID\" TEXT PRIMARY KEY, \"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT,\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT,\"Order Processing Time\" TEXT, \"Gross Margin\" TEXT);");
-                ps.execute();
-                rs.close();
-
-                //insert data from csv file to table:
-                insertTable(csvFilePath, tableName, con);
-
-                ps = con.prepareStatement("select * from "+ tableName+ ";");
-                rs = ps.executeQuery();
-                // Debugging, print out result from select statement:
-//                displayData(rs);
-
-            }
-            else {
-                logger.log("Database \'" + dbName + "' exists with table: " + tableName
-                        + ", no new table needs to be created, upload cached table to s3.");
-            }
-
-            // need to upload db to s3
+            //upload db to s3
             putFileToS3(bucketName, new File(LAMBDA_TEMP_DIRECTORY + dbName));
-            setResponseObj(r, true, null, bucketName, dbName, tableName);
 
-            rs.close();
-            con.close();
+            //invoke Lambda if required:
+            if (invokedLambdaName != null) {
+                //invoke next lambda:
+                invokeLambda(bucketName,dbName,tableName);
+            }
 
-            logger.log("closing all connection !!!");
+            //send response
+            setResponseObj(r, true, transactionId, null, bucketName, dbName, tableName);
 
-        }
-        catch (SQLException sqle)
-        {
-            logger.log("DB ERROR:" + sqle.toString());
-            setResponseObj(r, false, sqle.toString(), null, null, null);
         }
         catch (Exception e) {
-            logger.log("File Error: " + e.toString());
-            setResponseObj(r, false, e.toString(), null, null, null);
+            logger.log("Exception: " + e.toString());
+            setResponseObj(r, false, transactionId, e.toString(), null, null, null);
         }
 
         return r;
     }
 
+
+    /**
+     * create a db if not exists, and insert csv data into table:
+     * @param csvFilePath local path to csv file
+     * @throws SQLException
+     */
+    private void createDB(String csvFilePath) throws SQLException {
+        // Connection string for a file-based SQlite DB
+        Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
+
+        // Detect if the table  exists in the database
+        PreparedStatement ps = con.prepareStatement("SELECT * FROM sqlite_master WHERE type='table' AND name='" + tableName + "'");
+        ResultSet rs = ps.executeQuery();
+
+        // if table doesnt exist, create new one:
+        if (!rs.next()) {
+            // table does not exist, and should be created
+            logger.log(" Table doesnt exist. Creating table: '" + tableName + "'");
+
+            ps = con.prepareStatement("CREATE TABLE " + tableName
+                    + "( \"Region\" TEXT,\"Country\" TEXT,\"Item Type\" TEXT,\"Sales Channel\" TEXT," +
+                    "\"Order Priority\" TEXT,\"Order Date\" TEXT,\"Order ID\" TEXT PRIMARY KEY, " +
+                    "\"Ship Date\" TEXT,\"Units Sold\" TEXT,\"Unit Price\" TEXT,\"Unit Cost\" TEXT," +
+                    "\"Total Revenue\" TEXT,\"Total Cost\" TEXT,\"Total Profit\" TEXT," +
+                    "\"Order Processing Time\" TEXT, \"Gross Margin\" TEXT);");
+            ps.execute();
+            rs.close();
+
+            //insert data from csv file to table:
+            insertTable(csvFilePath, con);
+        } else {
+            logger.log("Database \'" + dbName + "' exists with table: " + tableName
+                    + ", no new table needs to be created, upload cached table to s3.");
+        }
+        rs.close();
+        con.close();
+        logger.log("closing all connection !!!");
+
+    }
+
     // set response obj
-    private void setResponseObj(Response r, boolean success, String e, String bucketName,
+    private void setResponseObj(Response r, boolean success, String transId, String e, String bucketName,
                                        String dbName, String tableName) {
         // Set response object:
+        r.setTransactionid(transId);
+
         if (success) {
             r.setSuccess(true);
             r.setBucketname(bucketName);
@@ -170,7 +179,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
     }
 
     //insert data from csv to table
-    private static void insertTable(String csvFilePath, String tablename, Connection con) {
+    private static void insertTable(String csvFilePath, Connection con) {
 
         //try inserting data to table from local csv:
         String line = "";
@@ -200,7 +209,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
                 } //for
 
                 //insert each row to table:
-                PreparedStatement ps = con.prepareStatement("insert into " + tablename + " values(" + values + ");");
+                PreparedStatement ps = con.prepareStatement("insert into " + tableName + " values(" + values + ");");
                 ps.execute();
             }//while
         }
@@ -315,6 +324,70 @@ public class ETL_Load implements RequestHandler<Request, Response>
             throw new IllegalArgumentException("putFileToS3() Failed to upload to s3: " + ase.toString());
         }
     }
+
+
+    /**
+     * Invoke another lambda (https://medium.com/@joshua.a.kahn/invoking-an-aws-lambda-function-from-java-29efe3a03fe8)
+     * How to build json (https://stackoverflow.com/questions/8876089/how-to-fluently-build-json-in-java)
+     * @param bucketname
+     * @param dbname
+     * @param tablename
+     * @return
+     * @throws JSONException
+     */
+    private void invokeLambda(String bucketname, String dbname, String tablename) throws JSONException {
+        if (invokedLambdaName == null || invokedLambdaName.isEmpty()){
+            throw new IllegalArgumentException("Environment variables:\"EXTRACTION_LAMBDA_NAME\" is not set");
+        }
+
+        //setup lambda invoke client:
+        lambdaClient = AWSLambdaClientBuilder.standard().withRegion(AWS_REGION).build();
+
+        //build payload:
+        String payload = new JSONObject()
+                .put("bucketname", bucketname)
+                .put("dbname", dbname)
+                .put("tablename", tablename).toString();
+
+        //invoke another func
+        InvokeRequest req = new InvokeRequest()
+                .withFunctionName(invokedLambdaName)
+                .withPayload(payload);
+
+        // Invoke the function and capture response
+        InvokeResult result = lambdaClient.invoke(req);
+
+        if (result.getStatusCode() != HttpStatus.SC_OK) {
+            throw new IllegalArgumentException("Failed to invoke lambda " + invokedLambdaName + ". " + result.getFunctionError());
+        }
+    }
+
+    //just do some simple validation for required fields:
+    private String validateParams(Request request) {
+
+        if (request.getTransactionid() == null || request.getTransactionid().isEmpty()) {
+            return "\"transactionid\" is required in request";
+        }
+
+        if (request.getFilename() == null || request.getFilename().isEmpty()){
+             return "\"filename\" are required in request";
+        }
+
+        if (bucketName == null || bucketName.isEmpty()){
+            return "Environment variables:\"BUCKET_NAME\" is not set";
+        }
+
+        if (dbName == null || dbName.isEmpty()){
+            return "Environment variables:\"DB_NAME\" is not set";
+        }
+
+        if (tableName == null || tableName.isEmpty()){
+            return "Environment variables:\"TABLE_NAME\" is not set";
+        }
+
+        return null;
+    }
+
 
 
     // TODO: fix this so we can collect metrics:

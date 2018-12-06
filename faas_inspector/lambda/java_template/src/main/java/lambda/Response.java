@@ -28,6 +28,9 @@ public class Response extends fiResponse {
 
 
 
+    public String transactionid;
+
+
     private String error;
 
 
@@ -61,6 +64,13 @@ public class Response extends fiResponse {
 
     public void setSuccess(boolean message) {
         this.success = message;
+    }
+    public String getTransactionid() {
+        return transactionid;
+    }
+
+    public void setTransactionid(String transactionid) {
+        this.transactionid = transactionid;
     }
     @Override
     public String getError() {
