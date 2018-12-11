@@ -46,6 +46,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
     private AmazonS3 s3client;
     private AWSLambda lambdaClient;
 
+
     private static final String LAMBDA_TEMP_DIRECTORY = "/tmp/";
     private static final String AWS_REGION = "us-east-1";
     private static final String TRANSFORM = "transformed"; //after lambda 1 transform, put csv here.
@@ -53,7 +54,6 @@ public class ETL_Load implements RequestHandler<Request, Response>
     private static final String CSV_DELIM = ",";
 
     private static final String bucketName = System.getenv("BUCKET_NAME");
-    private static final String dbName = System.getenv("DB_NAME");
     private static final String tableName = System.getenv("TABLE_NAME");
     private static final String invokedLambdaName = System.getenv("EXTRACTION_LAMBDA_NAME");
 
@@ -78,7 +78,13 @@ public class ETL_Load implements RequestHandler<Request, Response>
             setResponseObj(r, false, transactionId,precheckErrMsg, null, null, null);
             return r;
         }
-        logger.log("input fileName: " + fileName);
+
+        //parsing out the number from file name, to use for db name:
+        String numbers = fileName.replaceAll("[^0-9]", "");
+        String dbName = "sale_" + numbers + ".db"; //append number of record at the end of the file
+
+        logger.log("input fileName: " + fileName + ", dbname: " + dbName);
+
         try
         {
             //setup S3 client :
@@ -96,7 +102,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
             }
 
             //create table, insert data from csv:
-            createDB(csvFilePath);
+            createDB(csvFilePath, dbName);
 
             //upload db to s3
             putFileToS3(bucketName, new File(LAMBDA_TEMP_DIRECTORY + dbName));
@@ -125,7 +131,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
      * @param csvFilePath local path to csv file
      * @throws SQLException
      */
-    private void createDB(String csvFilePath) throws SQLException {
+    private void createDB(String csvFilePath, String dbName) throws SQLException {
         // Connection string for a file-based SQlite DB
         Connection con = DriverManager.getConnection("jdbc:sqlite:" + dbName);
 
@@ -375,10 +381,6 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
         if (bucketName == null || bucketName.isEmpty()){
             return "Environment variables:\"BUCKET_NAME\" is not set";
-        }
-
-        if (dbName == null || dbName.isEmpty()){
-            return "Environment variables:\"DB_NAME\" is not set";
         }
 
         if (tableName == null || tableName.isEmpty()){
