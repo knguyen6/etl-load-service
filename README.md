@@ -20,7 +20,6 @@ depend, start with 1 or 2 mins, could go up to 15 mins.
 ## Environment Variables
 Your lambda will need these environment variables (Add environment vars on ur Lambda UI, under the upload for source code section): 
 
-```DB_NAME : my_db.db```
 
 ```TABLE_NAME : my_table```
 
