@@ -24,6 +24,9 @@ Your lambda will need these environment variables (Add environment vars on ur La
 
 ```TABLE_NAME : my_table```
 
+```BUCKET_NAME: my_bucket```
+
+
 
 ## Request
 Request body required ```bucketname``` and ```filename```
@@ -32,7 +35,7 @@ Example:
 
 ```
 {
-  "bucketname" : "my_bucket",
+  "transactionid" : "some_unique_trans_id",
   "filename" : "my_file.csv"
 }
 ```
@@ -44,7 +47,8 @@ Example:
   "bucketname":  "my_bucket",
   "dbname" : "my_db.db",
   "tablename" : "my_table",
-  "error" : "<error if success=false>"
+  "error" : "<error if success=false>",
+  "transactionid":"some_unique_trans_id"
 }
 ```
 
