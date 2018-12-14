@@ -69,12 +69,13 @@ public class ETL_Load implements RequestHandler<Request, Response>
         Response r = reg.StampContainer();
 
         setCurrentDirectory("/tmp");
-        String fileName = request.getFilename(); //get filename from req.
+        String fileName = request.getExported_filename() != null ? request.getExported_filename() : request.getFilename(); //get exported_filename from req.
         String transactionId = request.getTransactionid(); //get transactionId from req.
 
         //make sure env vars and required field in request present:
         String precheckErrMsg = validateParams(request);
         if (precheckErrMsg != null) {
+            logger.log("Something is missing: " + precheckErrMsg);
             setResponseObj(r, false, transactionId,precheckErrMsg, null, null, null);
             return r;
         }
@@ -82,6 +83,10 @@ public class ETL_Load implements RequestHandler<Request, Response>
         //parsing out the number from file name, to use for db name:
         String numbers = fileName.replaceAll("[^0-9]", "");
         String dbName = "sale_" + numbers + ".db"; //append number of record at the end of the file
+
+        //if fileName has /transformed/, remove it:
+        if (fileName.toLowerCase().contains("/"+TRANSFORM+"/"))
+            fileName = fileName.replaceAll("/"+TRANSFORM+"/","");
 
         logger.log("input fileName: " + fileName + ", dbname: " + dbName);
 
@@ -110,7 +115,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
             //invoke Lambda if required:
             if (invokedLambdaName != null) {
                 //invoke next lambda:
-                invokeLambda(bucketName,dbName,tableName);
+                invokeLambda(bucketName,dbName,tableName, transactionId);
             }
 
             //send response
@@ -186,7 +191,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
     //insert data from csv to table
     private static void insertTable(String csvFilePath, Connection con) {
-
+        System.out.println("insertTable from = " + csvFilePath + ", tablename = "+ tableName);
         //try inserting data to table from local csv:
         String line = "";
         int lineCount = 0;
@@ -217,6 +222,10 @@ public class ETL_Load implements RequestHandler<Request, Response>
                 //insert each row to table:
                 PreparedStatement ps = con.prepareStatement("insert into " + tableName + " values(" + values + ");");
                 ps.execute();
+
+                if (lineCount%5000 == 0)
+                    System.out.println("===> Records inserted: " + lineCount);
+
             }//while
         }
         catch(Exception e ){
@@ -273,7 +282,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
     /**
      *  get s3 object
      * @param bucketName bucket name
-     * @param objectKey object filename aka name of file in s3, or path of file in s3
+     * @param objectKey object exported_filename aka name of file in s3, or path of file in s3
      */
     private void getDataFromS3(String bucketName, String objectKey) {
         System.out.println("getting file from s3: " + bucketName + " : " + TRANSFORM + "/" + objectKey);
@@ -341,7 +350,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
      * @return
      * @throws JSONException
      */
-    private void invokeLambda(String bucketname, String dbname, String tablename) throws JSONException {
+    private void invokeLambda(String bucketname, String dbname, String tablename, String tid) throws JSONException {
         if (invokedLambdaName == null || invokedLambdaName.isEmpty()){
             throw new IllegalArgumentException("Environment variables:\"EXTRACTION_LAMBDA_NAME\" is not set");
         }
@@ -351,6 +360,7 @@ public class ETL_Load implements RequestHandler<Request, Response>
 
         //build payload:
         String payload = new JSONObject()
+                .put("transactionid", tid)
                 .put("bucketname", bucketname)
                 .put("dbname", dbname)
                 .put("tablename", tablename).toString();
@@ -374,10 +384,10 @@ public class ETL_Load implements RequestHandler<Request, Response>
         if (request.getTransactionid() == null || request.getTransactionid().isEmpty()) {
             return "\"transactionid\" is required in request";
         }
-
-        if (request.getFilename() == null || request.getFilename().isEmpty()){
-             return "\"filename\" are required in request";
-        }
+//
+//        if (request.getExported_filename() == null || request.getExported_filename().isEmpty()){
+//             return "\"exported_filename\" are required in request";
+//        }
 
         if (bucketName == null || bucketName.isEmpty()){
             return "Environment variables:\"BUCKET_NAME\" is not set";
@@ -467,10 +477,10 @@ public class ETL_Load implements RequestHandler<Request, Response>
 //
 //        //TODO: fix this
 //        // Grab the name from the cmdline from arg 0
-//        String filename = (args.length > 0 ? args[0] : "");
+//        String exported_filename = (args.length > 0 ? args[0] : "");
 //
 //        // Load the name into the request object
-//        req.setBucketname(filename);
+//        req.setBucketname(exported_filename);
 //
 //        // Run the function
 //        Response resp = lt.handleRequest(req, c);

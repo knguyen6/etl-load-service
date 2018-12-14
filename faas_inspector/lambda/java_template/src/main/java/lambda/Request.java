@@ -11,8 +11,8 @@ package lambda;
  */
 public class Request {
 //    String bucketname;
+    String exported_filename;
     String filename;
-
 
 
     String transactionid;
@@ -25,13 +25,19 @@ public class Request {
 //    {
 //        this.bucketname = bucketname;
 //    }
-
     public String getFilename() {
         return filename;
     }
 
     public void setFilename(String filename) {
         this.filename = filename;
+    }
+    public String getExported_filename() {
+        return exported_filename;
+    }
+
+    public void setExported_filename(String exported_filename) {
+        this.exported_filename = exported_filename;
     }
     public String getTransactionid() {
         return transactionid;
