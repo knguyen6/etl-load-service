@@ -1,3 +1,5 @@
+
+# ETL project
 ## Load lambda
 
 Compile the project into a jar file under ```target```.
@@ -25,7 +27,8 @@ Your lambda will need these environment variables (Add environment vars on ur La
 
 ```BUCKET_NAME: my_bucket```
 
-
+If running 'Asynchronous' implementation, add another environment variable to trigger Extraction lambda:
+```EXTRACTION_LAMBDA_NAME```
 
 ## Request
 Request body required ```bucketname``` and ```filename```
